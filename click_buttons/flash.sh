@@ -6,5 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 FQBN="esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=cdc,FlashSize=16M,PSRAM=disabled"
+# Страница назначений вшивается в прошивку — флешка CLICKER (disk.h). bind_html.h — сборочный, не в git.
+{ printf 'const char BIND_HTML[] = R"=HTML=('; cat bind.html; printf ')=HTML=";\n'; } > bind_html.h
 arduino-cli compile --fqbn "$FQBN" .
 if [ $# -gt 0 ]; then arduino-cli upload --fqbn "$FQBN" -p "$1" .; fi

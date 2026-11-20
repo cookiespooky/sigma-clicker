@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Кликер: назначения</title>
+<!--
+  Назначения кнопок кликера из браузера — на Mac и Windows одинаково. Открыть файл в Chrome или Edge
+  (Safari и Firefox не умеют Web Serial), нажать «Подключить», выбрать плату (ESP32S3_DEV / «USB Serial Device»).
+  Говорит с платой теми же командами порта, что bind.sh: list, set N …, reset, learn.
+  Клавиша берётся по физическому месту (event.code), раскладка не важна.
+-->
+<style>
+  :root {
+    --bg: #f6f5f2; --card: #fff; --text: #1d1d1b; --muted: #6b6a66; --line: #dddbd5;
+    --accent: #2f6fde; --lit: #f2b705; --bad: #c0392b; --ok: #2e8b57;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #18181a; --card: #232326; --text: #ececea; --muted: #9a9995; --line: #3a3a3e;
+            --accent: #6d9dff; --lit: #ffcc33; --bad: #ff7a6b; --ok: #5fcf8f; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 16px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { margin: 6px 0; }
+  .muted { color: var(--muted); }
+  button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line);
+           background: var(--card); color: var(--text); cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 12px 0; }
+  .buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0; }
+  @media (max-width: 560px) { .buttons { grid-template-columns: repeat(2, 1fr); } }
+  .btn { background: var(--card); border: 2px solid var(--line); border-radius: 12px; padding: 12px;
+         cursor: pointer; text-align: left; }
+  .btn .n { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  .btn .lamp { width: 12px; height: 12px; border-radius: 50%; background: var(--line); }
+  .btn.lit .lamp { background: var(--lit); box-shadow: 0 0 8px var(--lit); }
+  .btn .bind { margin-top: 6px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px;
+               word-break: break-word; }
+  .btn.sel { border-color: var(--accent); }
+  #capture { border: 2px dashed var(--accent); border-radius: 12px; padding: 28px 16px; text-align: center;
+             background: var(--card); user-select: none; outline: none; }
+  #capture:focus { border-style: solid; }
+  #capture .big { font-size: 20px; font-weight: 600; }
+  input[type=text] { font: 15px ui-monospace, Menlo, Consolas, monospace; padding: 8px 10px; border-radius: 8px;
+                     border: 1px solid var(--line); background: var(--card); color: var(--text); flex: 1; min-width: 180px; }
+  #status { min-height: 1.5em; }
+  #status.bad { color: var(--bad); }
+  #status.ok { color: var(--ok); }
+  details { margin-top: 24px; }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Кликер: назначения кнопок</h1>
+  <p class="muted">Назначения хранятся в самой плате: настроили здесь — кликер так же работает на любом компьютере.</p>
+
+  <p id="nosupport" class="bad" hidden>Этот браузер не умеет работать с USB-портом. Откройте файл в Chrome или Edge.</p>
+
+  <div class="row" id="connectRow">
+    <button class="primary" id="connect">Подключить кликер</button>
+    <span class="muted">Выберите в списке ESP32S3_DEV (на Windows может называться «USB Serial Device»).</span>
+  </div>
+
+  <div id="app" hidden>
+    <p id="hint"><b>Нажмите кнопку на кликере</b> — или щёлкните её карточку ниже. Нажатие ничего не сделает на компьютере, только загорится лампочка.</p>
+    <div class="buttons" id="buttons"></div>
+
+    <div id="captureBox" hidden>
+      <div id="capture" tabindex="0">
+        <div class="big" id="captureTitle">Кнопка 1</div>
+        <p>Нажмите клавишу или сочетание — или щёлкните <b>в этой рамке</b> нужной кнопкой мыши<br>
+           (левая, правая, средняя, боковые «назад» и «вперёд»).</p>
+        <p class="muted">Одиночный Shift, Ctrl, Alt, Cmd/Win — нажать и отпустить.</p>
+      </div>
+      <div class="row">
+        <input type="text" id="manual" placeholder="или впишите: key cmd+w · mouse back · none" autocomplete="off" spellcheck="false">
+        <button id="manualSet">Назначить</button>
+        <button id="none">Ничего</button>
+        <button id="cancel">Отмена</button>
+      </div>
+      <p class="muted">Сочетания, которые браузер не отдаёт странице (например Cmd+W, Ctrl+W, Alt+F4), — впишите в поле.</p>
+    </div>
+
+    <p id="status"></p>
+
+    <div class="row">
+      <button id="reset">Все кнопки — левый клик</button>
+      <button id="disconnect">Отключить</button>
+    </div>
+  </div>
+
+  <details>
+    <summary>Справка</summary>
+    <p>Назначение — одно из:</p>
+    <p><code>mouse left | right | middle | back | forward</code> — кнопка мыши;<br>
+       <code>key ИМЯ</code> — клавиша, модификаторы через «+»: <code>key a</code>, <code>key f5</code>,
+       <code>key ctrl+c</code>, <code>key cmd+shift+z</code>, <code>key shift</code>;<br>
+       <code>none</code> — ничего (лампочка горит).</p>
+    <p>Модификаторы: <code>ctrl shift alt cmd</code> (<code>cmd</code> = Win на Windows).
+       Клавиши: <code id="keylist">a–z 0–9 f1–f24 …</code></p>
+    <p>Каждое новое нажатие — новый клик или новое нажатие клавиши, даже если другая кнопка с тем же назначением зажата.
+       Удержание — как удержание на настоящей мыши или клавиатуре.</p>
+    <p class="muted">На Mac то же умеет <code>bind.sh</code> в терминале.</p>
+  </details>
+</main>
+
+<script>
+"use strict";
+const N = 4;
+const $ = (id) => document.getElementById(id);
+
+// event.code → имя клавиши прошивки (физическая клавиша, раскладка не важна)
+const CODE_NAMES = {
+  Enter: "enter", NumpadEnter: "enter", Escape: "esc", Backspace: "backspace", Tab: "tab", Space: "space",
+  Minus: "minus", Equal: "equal", BracketLeft: "lbracket", BracketRight: "rbracket", Backslash: "backslash",
+  Semicolon: "semicolon", Quote: "quote", Backquote: "grave", Comma: "comma", Period: "dot", Slash: "slash",
+  CapsLock: "capslock", PrintScreen: "printscreen", ScrollLock: "scrolllock", Pause: "pause",
+  Insert: "insert", Home: "home", PageUp: "pageup", Delete: "delete", End: "end", PageDown: "pagedown",
+  ArrowRight: "right", ArrowLeft: "left", ArrowDown: "down", ArrowUp: "up",
+};
+const MOD_CODES = {
+  ShiftLeft: "shift", ShiftRight: "shift", ControlLeft: "ctrl", ControlRight: "ctrl",
+  AltLeft: "alt", AltRight: "alt", MetaLeft: "cmd", MetaRight: "cmd", OSLeft: "cmd", OSRight: "cmd",
+};
+const MOUSE_NAMES = ["left", "middle", "right", "back", "forward"];  // MouseEvent.button 0–4
+
+function keyName(code) {
+  let m;
+  if ((m = /^Key([A-Z])$/.exec(code))) return m[1].toLowerCase();
+  if ((m = /^Digit([0-9])$/.exec(code))) return m[1];
+  if ((m = /^F([0-9]{1,2})$/.exec(code)) && +m[1] >= 1 && +m[1] <= 24) return "f" + m[1];
+  return CODE_NAMES[code] || null;
+}
+
+function mods(e) {
+  const out = [];
+  if (e.ctrlKey) out.push("ctrl");
+  if (e.altKey) out.push("alt");
+  if (e.shiftKey) out.push("shift");
+  if (e.metaKey) out.push("cmd");
+  return out;
+}
+
+// ---- порт ----
+
+let port = null, writer = null, reader = null;
+let buffer = "";
+let pending = null;   // {lines, resolve, reject, timer}
+
+async function connect() {
+  try {
+    port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x303a }] });
+  } catch (e) { return; }  // окно выбора закрыли
+  try {
+    await port.open({ baudRate: 115200 });
+  } catch (e) {
+    return status("Порт не открылся: " + e.message + ". Не открыт ли он в другой программе (bind.sh, монитор порта)?", "bad");
+  }
+  await port.setSignals({ dataTerminalReady: true }).catch(() => {});
+  writer = port.writable.getWriter();
+  readLoop();
+  $("connectRow").hidden = true;
+  $("app").hidden = false;
+  try {
+    await refresh();
+    const keys = await send("keys");
+    $("keylist").textContent = keys.map((l) => l.replace(/^(keys|mods): /, "")).join(" · ");
+    learnLoop();
+  } catch (e) {
+    status("Плата не отвечает: " + e.message + ". Залита прошивка с назначениями? Попробуйте нажать RST и подключить заново.", "bad");
+  }
+}
+
+async function readLoop() {
+  const decoder = new TextDecoder();
+  reader = port.readable.getReader();
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let i;
+      while ((i = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, i).replace(/\r$/, "");
+        buffer = buffer.slice(i + 1);
+        onLine(line);
+      }
+    }
+  } catch (e) {
+    status("Связь с кликером потеряна: " + e.message, "bad");
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function onLine(line) {
+  let m;
+  if ((m = /^button (\d) (down|up)$/.exec(line))) {
+    const el = cards[+m[1] - 1];
+    if (el) el.classList.toggle("lit", m[2] === "down");
+    return;
+  }
+  if (!line || line.startsWith("clicker:") || !pending) return;
+  if (line === "ok") return finish(null);
+  if (line.startsWith("err ")) return finish(new Error(line.slice(4)));
+  pending.lines.push(line);
+}
+
+function finish(err) {
+  const p = pending;
+  if (!p) return;
+  pending = null;
+  clearTimeout(p.timer);
+  err ? p.reject(err) : p.resolve(p.lines);
+}
+
+// Одна команда за раз; новая команда отменяет ожидающий learn (прошивка сама его бросает).
+async function send(cmd, timeoutMs = 2000) {
+  while (pending && pending.cmd !== "learn") await pending.result.catch(() => {});  // дождаться своей очереди
+  if (pending) {
+    const p = pending; pending = null; clearTimeout(p.timer);
+    p.reject(Object.assign(new Error("cancelled"), { cancelled: true }));
+  }
+  const p = { cmd, lines: [] };
+  p.result = new Promise((resolve, reject) => {
+    p.resolve = resolve; p.reject = reject;
+    p.timer = setTimeout(() => finish(new Error("нет ответа")), timeoutMs);
+  });
+  pending = p;
+  const result = p.result;
+  await writer.write(new TextEncoder().encode(cmd + "\n"));
+  return result;
+}
+
+async function disconnect() {
+  try { if (pending && pending.cmd === "learn") await send("list"); } catch (e) {}
+  try { await reader.cancel(); } catch (e) {}
+  try { writer.releaseLock(); } catch (e) {}
+  try { await port.close(); } catch (e) {}
+  port = null;
+  $("app").hidden = true;
+  $("connectRow").hidden = false;
+  status("");
+}
+
+// ---- интерфейс ----
+
+const cards = [];
+let selected = null;   // номер кнопки, для которой ловим клавишу
+
+for (let i = 0; i < N; i++) {
+  const el = document.createElement("div");
+  el.className = "btn";
+  el.innerHTML = `<div class="n"><span class="lamp"></span>Кнопка ${i + 1}</div><div class="bind">…</div>`;
+  el.onclick = () => select(i + 1);
+  $("buttons").appendChild(el);
+  cards.push(el);
+}
+
+function status(text, kind = "") {
+  $("status").textContent = text;
+  $("status").className = kind;
+}
+
+async function refresh() {
+  const lines = await send("list");
+  for (const l of lines) {
+    const m = /^bind (\d) (.*)$/.exec(l);
+    if (m) cards[+m[1] - 1].querySelector(".bind").textContent = m[2];
+  }
+}
+
+// Ждём нажатия кнопки на кликере, пока не выбрана кнопка; прошивка ждёт 30 с — повторяем.
+async function learnLoop() {
+  while (port && selected === null) {
+    try {
+      const lines = await send("learn", 32000);
+      const m = /^pressed (\d)$/.exec(lines[0] || "");
+      if (m) { select(+m[1]); return; }
+    } catch (e) {
+      if (e.cancelled) return;
+      if (e.message !== "timeout") { status("Ошибка: " + e.message, "bad"); return; }
+    }
+  }
+}
+
+let soloMod = null;    // нажат один модификатор — если отпустят без другой клавиши, назначаем его
+
+function select(n) {
+  selected = n;
+  cards.forEach((c, i) => c.classList.toggle("sel", i + 1 === n));
+  $("captureTitle").textContent = `Кнопка ${n}`;
+  $("captureBox").hidden = false;
+  $("hint").hidden = true;
+  $("manual").value = "";
+  soloMod = null;
+  status("");
+  $("capture").focus();
+  if (pending && pending.cmd === "learn") send("list").catch(() => {});  // отменить learn
+}
+
+function unselect() {
+  selected = null;
+  cards.forEach((c) => c.classList.remove("sel"));
+  $("captureBox").hidden = true;
+  $("hint").hidden = false;
+  learnLoop();
+}
+
+async function assign(spec) {
+  const n = selected;
+  try {
+    await send(`set ${n} ${spec}`);
+    await refresh();
+    status(`Кнопка ${n} → ${spec}`, "ok");
+    unselect();
+  } catch (e) {
+    status(e.message, "bad");
+  }
+}
+
+$("capture").addEventListener("keydown", (e) => {
+  e.preventDefault();
+  if (e.repeat) return;
+  if (MOD_CODES[e.code]) { soloMod = MOD_CODES[e.code]; return; }
+  soloMod = null;
+  const name = keyName(e.code);
+  if (!name) return status(`Эту клавишу (${e.code}) кликер не знает — впишите другую в поле.`, "bad");
+  assign("key " + [...mods(e), name].join("+"));
+});
+
+$("capture").addEventListener("keyup", (e) => {
+  e.preventDefault();
+  if (soloMod && MOD_CODES[e.code] === soloMod) { const m = soloMod; soloMod = null; assign("key " + m); }
+});
+
+$("capture").addEventListener("mousedown", (e) => {
+  e.preventDefault();
+  $("capture").focus();
+  const name = MOUSE_NAMES[e.button];
+  if (name) assign("mouse " + name);
+});
+// не открывать меню и не листать историю на правой и боковых кнопках
+$("capture").addEventListener("contextmenu", (e) => e.preventDefault());
+$("capture").addEventListener("mouseup", (e) => e.preventDefault());
+$("capture").addEventListener("auxclick", (e) => e.preventDefault());
+
+$("manualSet").onclick = () => {
+  const v = $("manual").value.trim();
+  if (v) assign(v);
+};
+$("manual").addEventListener("keydown", (e) => { if (e.key === "Enter") $("manualSet").click(); });
+$("none").onclick = () => assign("none");
+$("cancel").onclick = () => { status(""); unselect(); };
+$("reset").onclick = async () => {
+  try {
+    await send("reset");
+    await refresh();
+    status("Все кнопки — левый клик.", "ok");
+    if (selected !== null) unselect(); else learnLoop();
+  } catch (e) { status(e.message, "bad"); }
+};
+$("disconnect").onclick = disconnect;
+$("connect").onclick = connect;
+
+if (!("serial" in navigator)) {
+  $("nosupport").hidden = false;
+  $("connect").disabled = true;
+}
+</script>
+</body>
+</html>
